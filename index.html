@@ -417,9 +417,10 @@ input[type=range]{accent-color:var(--s1);width:150px}
       <div class="tabpane" id="tab-picks">
         <div class="card" style="margin-bottom:14px">
           <h3>Top picks by holding period</h3>
-          <div class="sub">Your watchlist, ranked for the hold time you pick — momentum, trend quality, volatility, and swing confluence weighted differently for each horizon, with every stock's own conditional history spelled out.</div>
+          <div class="sub">Rank your own watchlist, or scan the whole built-in universe for fresh ideas — momentum, trend quality, volatility, and swing confluence weighted differently for each horizon, with every stock's own conditional history spelled out.</div>
           <div class="toolbar">
             <div class="ctl-group" id="hzGroup" role="group" aria-label="Holding period"></div>
+            <div class="ctl-group" id="scopeGroup" role="group" aria-label="Scan scope"></div>
             <span class="note" id="picksNote"></span>
           </div>
           <div class="callout" id="picksDisclaimer"></div>
@@ -700,6 +701,7 @@ const S = {
   cache: {},          // sym -> {bars, ind, sig, fetchedAt, live}
   tab: "chart",
   horizon: "1w",
+  pickScope: "watch",
   crossIdx: null,
   scrSort: {key:"long", dir:-1},
 };
@@ -2398,6 +2400,17 @@ function renderPickCard(list, p, rank, H){
   open.className = "btn small"; open.textContent = "Open chart";
   open.addEventListener("click", ()=>{ selectSymbol(p.sym); switchTab("chart"); });
   head.appendChild(open);
+  if (!S.watch.includes(p.sym)){
+    const addb = document.createElement("button");
+    addb.className = "btn small"; addb.textContent = "☆ Watch";
+    addb.addEventListener("click", ()=>{
+      if (!S.watch.includes(p.sym)) S.watch.push(p.sym);
+      addb.textContent = "✓ Watching"; addb.disabled = true;
+      renderSidebar();
+      toast(p.sym + " added to your watchlist.", "info", 3000);
+    });
+    head.appendChild(addb);
+  }
 
   const bar = div("pick-scorebar", body);
   div("num tn", bar, p.score);
@@ -2433,7 +2446,10 @@ function renderPickCard(list, p, rank, H){
   para("Risk", reason.risk);
 }
 
+const UNIVERSE_TOP = 12;
+let picksRun = 0; // guards against overlapping async renders
 async function renderPicks(){
+  const run = ++picksRun;
   const H = HORIZONS.find(h => h.key === S.horizon) || HORIZONS[0];
   const g = $("#hzGroup");
   g.textContent = "";
@@ -2445,23 +2461,44 @@ async function renderPicks(){
     b.addEventListener("click", ()=>{ S.horizon = h.key; renderPicks(); });
     g.appendChild(b);
   }
+  const sg = $("#scopeGroup");
+  sg.textContent = "";
+  const universe = Object.keys(COMPANY);
+  for (const [key, label] of [["watch","My watchlist ("+S.watch.length+")"],["universe","Discover · all "+universe.length]]){
+    const b = document.createElement("button");
+    b.className = "btn small" + (S.pickScope === key ? " active" : "");
+    b.textContent = label;
+    b.addEventListener("click", ()=>{ S.pickScope = key; renderPicks(); });
+    sg.appendChild(b);
+  }
+
+  const pool = S.pickScope === "universe" ? universe : [...S.watch];
   const list = $("#picksList");
-  const missing = S.watch.filter(s => !S.cache[s]);
-  const anyDemo = S.watch.some(s => S.cache[s] && !S.cache[s].live);
+  const missing = pool.filter(s => !S.cache[s]);
+  const anyDemo = pool.some(s => S.cache[s] && !S.cache[s].live);
+  const poolDesc = S.pickScope === "universe"
+    ? "all " + universe.length + " names in the built-in universe"
+    : "the " + S.watch.length + " symbols on your watchlist";
   $("#picksDisclaimer").textContent =
-    "These rankings compare the " + S.watch.length + " symbols on your watchlist against each other — they don't scan the whole market, so add tickers to widen the pool. " +
+    "These rankings compare " + poolDesc + " against each other — not the whole market. " +
     (anyDemo ? "Right now they run on simulated demo data (switch to live in Settings for real prices). " : "") +
     "Each 'history' line is that stock's own past forward returns after similar scores, sample sizes included. Statistics describe the past — they don't promise the future, and none of this is investment advice.";
 
   if (missing.length && S.mode === "live"){
     list.textContent = "";
     const c = div("card", list);
-    const t = div("sub", c, missing.length + " watchlist symbol(s) aren't loaded yet. Loading them uses about " + missing.length + " API credits.");
+    div("sub", c, missing.length + " symbol(s) in this scope aren't loaded yet. Loading them uses about " + missing.length + " API credits" +
+      (missing.length > 100 ? " — a big bite out of the ~800/day free tier" : "") + ".");
     const b = document.createElement("button");
     b.className = "btn primary"; b.textContent = "Load " + missing.length + " symbols & rank";
     b.addEventListener("click", async ()=>{
-      b.disabled = true; b.textContent = "Loading…";
-      for (const s of missing) await getData(s);
+      b.disabled = true;
+      let done = 0;
+      for (const s of missing){
+        if (run !== picksRun) return;
+        await getData(s);
+        b.textContent = "Loading… " + (++done) + "/" + missing.length;
+      }
       renderPicks();
     });
     c.appendChild(b);
@@ -2469,17 +2506,27 @@ async function renderPicks(){
     return;
   }
   if (missing.length){
-    for (const s of missing) await getData(s);
+    $("#picksNote").textContent = "Scanning " + missing.length + " symbols…";
+    let done = 0;
+    for (const s of missing){
+      if (run !== picksRun) return; // a newer render superseded this one
+      await getData(s);
+      if (++done % 20 === 0) await new Promise(r => setTimeout(r, 0)); // let the UI breathe
+    }
   }
+  if (run !== picksRun) return;
 
-  const picks = S.watch.filter(s => S.cache[s]).map(s => analyzeSym(s, H)).filter(Boolean).sort((a,b)=> b.score - a.score);
-  $("#picksNote").textContent = "Ranking " + picks.length + " symbols · " + H.label + " hold · suggested stop " + H.stop + "×ATR · daily data";
+  const picks = pool.filter(s => S.cache[s]).map(s => analyzeSym(s, H)).filter(Boolean).sort((a,b)=> b.score - a.score);
+  const shown = S.pickScope === "universe" ? picks.slice(0, UNIVERSE_TOP) : picks;
+  $("#picksNote").textContent = "Ranked " + picks.length + " symbols" +
+    (shown.length < picks.length ? " · showing top " + shown.length : "") +
+    " · " + H.label + " hold · suggested stop " + H.stop + "×ATR · daily data";
   list.textContent = "";
-  if (!picks.length){
+  if (!shown.length){
     div("card", list, "No symbols have enough history to rank yet — each needs about 210 daily bars.");
     return;
   }
-  picks.forEach((p, idx) => renderPickCard(list, p, idx+1, H));
+  shown.forEach((p, idx) => renderPickCard(list, p, idx+1, H));
 }
 
 /* ================================================================

@@ -6,7 +6,7 @@ A swing-trade decision desk in a single `index.html` — no build, no dependenci
 
 - **Chart & Signal** — SVG candlestick chart with SMA 20/50/200, Bollinger bands, volume, RSI, and MACD panes; daily/weekly intervals; keyboard-navigable crosshair; a transparent long/short confluence score with every point itemized; and an ATR-based trade plan.
 - **Screener** — the whole watchlist scored on the same confluence model, sortable by any column.
-- **Top Picks** — watchlist ranked for a chosen holding period (1 week to 1 year), with each stock's own conditional forward-return history spelled out, sample sizes and overlap caveats included.
+- **Top Picks** — ranked recommendations for a chosen holding period (1 week to 1 year), with each stock's own conditional forward-return history spelled out, sample sizes and overlap caveats included. Two scopes: rank your own watchlist, or **Discover** — scan the entire built-in universe and surface the top candidates, each with a one-click "Watch" button.
 - **Trade Planner** — position sizing from the loss side: account, risk %, entry, stop → share count, R levels, breakeven win rate.
 - **Backtest** — runs the exact on-chart score against history with next-open entries, ATR stops, R targets, and time stops; conservative same-bar stop-first fills.
 - **Pluto** — the swing pup keeps watch in the corner. His collar turns green when the long side clears 65 on the open chart, red when the short side does; click him for a tip.
