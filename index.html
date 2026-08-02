@@ -1637,8 +1637,20 @@ function setLoading(el, on){ el.style.opacity = on ? ".45" : ""; el.style.pointe
 
 function renderTopbar(){
   const badge = $("#modeBadge");
-  badge.textContent = S.mode === "live" ? "LIVE DATA" : "DEMO DATA";
-  badge.className = "mode-badge " + (S.mode === "live" ? "live" : "demo");
+  if (S.mode !== "live"){
+    badge.textContent = "DEMO DATA";
+    badge.className = "mode-badge demo";
+    badge.title = "";
+  } else {
+    const entries = Object.values(S.cache);
+    const liveCount = entries.filter(e => e.live).length;
+    const anyLive = liveCount > 0 || entries.length === 0;
+    badge.textContent = !anyLive ? "LIVE OFFLINE" : liveCount < entries.length ? "LIVE · PARTIAL" : "LIVE DATA";
+    badge.className = "mode-badge " + (anyLive ? "live" : "demo");
+    badge.title = anyLive && liveCount < entries.length
+      ? "Some symbols fell back to simulated data (live fetch failed or pending)."
+      : !anyLive ? "Live fetches failed — showing simulated data." : "";
+  }
   const row = $("#idxRow");
   row.textContent = "";
   for (const sym of S.indices){
