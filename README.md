@@ -15,7 +15,9 @@ Ships with a 24-symbol default watchlist and a ~110-name company database (megac
 
 ## Data
 
-Starts in clearly-labeled **demo mode** (seeded, regime-switching random walks — stable per symbol). Add a free [Twelve Data](https://twelvedata.com/pricing) API key in Settings for live daily data; requests are cached for 10 minutes to stay inside the free tier.
+Starts in clearly-labeled **demo mode** (seeded, regime-switching random walks — stable per symbol; any typed symbol gets a series). Add a free [Twelve Data](https://twelvedata.com/pricing) API key in Settings for live daily data; requests are cached for 10 minutes and bulk loads are automatically paced to the free tier's 8-requests/minute limit.
+
+**Every ticker in the world:** the sidebar search queries the provider's full global directory (a free endpoint — no credits), so any listed symbol on any exchange — including brand-new IPOs — can be found by name or symbol and charted. Young listings without 200 days of history are scored with a 50-day trend proxy (clearly labeled), rankable from about 60 bars, and flagged as "New listing" on pick cards.
 
 ## Run it
 

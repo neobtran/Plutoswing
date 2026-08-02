@@ -87,7 +87,17 @@ input,select{font:inherit}
 }
 #watchHead{display:flex;align-items:center;justify-content:space-between;padding:12px 14px 6px}
 #watchHead h2{margin:0;font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.8px;text-transform:uppercase}
-#addSym{display:flex;gap:6px;padding:4px 14px 10px}
+#addSym{display:flex;gap:6px;padding:4px 14px 10px;position:relative}
+#symSuggest{
+  position:absolute;top:100%;left:14px;right:14px;z-index:45;margin-top:2px;
+  background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+  overflow:hidden auto;max-height:300px;box-shadow:0 10px 28px rgba(0,0,0,.55);
+}
+#symSuggest .sg{padding:7px 10px;cursor:pointer;display:flex;flex-direction:column;gap:1px}
+#symSuggest .sg:hover{background:var(--surface)}
+#symSuggest .sg b{font-size:12.5px}
+#symSuggest .sg span{color:var(--muted);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:none}
+#symSuggest .sg-note{padding:6px 10px;font-size:10.5px;color:var(--muted);border-top:1px solid var(--grid)}
 #addSym input{
   flex:1;min-width:0;background:var(--surface);border:1px solid var(--border);
   border-radius:8px;padding:6px 10px;color:var(--ink);text-transform:uppercase;
@@ -101,9 +111,9 @@ input,select{font:inherit}
 .w-row:hover{background:var(--surface)}
 .w-row.sel{background:var(--surface);border-color:var(--border)}
 .w-row .sym{font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:7px}
-.w-row .nm{grid-column:1/3;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.w-row .nm{grid-column:1;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .w-row .px{text-align:right;font-size:13px;color:var(--ink2)}
-.w-row .chg{text-align:right;font-size:11.5px}
+.w-row .chg{grid-column:2;text-align:right;font-size:11.5px}
 .scorepill{
   font-size:10px;font-weight:700;border-radius:5px;padding:1px 5px;
   background:var(--surface2);color:var(--muted);border:1px solid var(--border);
@@ -489,7 +499,9 @@ input[type=range]{accent-color:var(--s1);width:150px}
       <div class="callout info">
         Live mode uses <b>Twelve Data</b> — a free key (≈800 credits/day, 8/min) is available at
         <a href="https://twelvedata.com/pricing" target="_blank" rel="noopener">twelvedata.com</a>.
-        One chart load = 1 credit; the app fetches lazily and caches for 10 minutes to stay inside the free tier.
+        One chart load = 1 credit; the app fetches lazily, caches for 10 minutes, and automatically paces bulk
+        loads to the 8-requests/minute free limit. Symbol search covers every listed ticker worldwide — including
+        new IPOs — and costs no credits.
         If live requests fail inside a chat preview, download this file and open it directly in your browser.
         Tip: if you keep this file locally, you can paste your key into <code>DEFAULT_API_KEY</code> at the top of the script so it's pre-filled.
       </div>
@@ -952,15 +964,23 @@ function scoreAt(bars, ind, i, side){
   const add = (ok, pts, label, why) => { parts.push({ok, pts: ok?pts:0, max:pts, label, why}); };
   const pen = (bad, pts, label, why) => { if (bad) parts.push({ok:false, pen:true, pts:-pts, max:0, label, why}); };
 
-  if (s200 == null || s50 == null || s20 == null || rsi == null || ind.atr[i] == null){
-    return {score:0, parts:[{ok:false,pts:0,max:0,label:"Not enough history",why:"Needs ~200 daily bars to score."}], setup:"—"};
+  if (s50 == null || s20 == null || rsi == null || ind.atr[i] == null){
+    return {score:0, parts:[{ok:false,pts:0,max:0,label:"Not enough history",why:"Needs ~50 daily bars to score — very new listing."}], setup:"—"};
   }
+  const limited = s200 == null; // young listing / recent IPO: no 200-day average yet
+  const s50p = ind.sma50[i-10];
 
   if (long){
+    if (limited){
+      const proxy = c > s50 && (s50p == null || s50 >= s50p);
+      add(proxy, 20, "Uptrend (limited history)", proxy ? "No 200-day yet — price above a rising 50-day." :
+          "New listing: price is not above a rising 50-day average.");
+    } else {
     const regimeFull = c > s200 && s50 > s200;
     add(regimeFull, 20, "Long-term uptrend", regimeFull ? "Price above the 200-day and 50>200." :
         (c > s200 ? "Price above 200-day but 50-day hasn't crossed." : "Price below the 200-day average."));
     if (!regimeFull && c > s200) parts[parts.length-1].pts = 10;
+    }
     add(c > s50, 10, "Above the 50-day", c > s50 ? "Intermediate trend is up." : "Trading below the 50-day.");
     add(s20p != null && s20 > s20p, 10, "20-day rising", "Short-term average slope over the last week.");
 
@@ -978,14 +998,22 @@ function scoreAt(bars, ind, i, side){
     add(mline!=null && msig!=null && mline > msig, 5, "MACD above signal", "Momentum crossover state.");
     add(rsiP!=null && rsi > 50 && rsi > rsiP, 5, "RSI strong & rising", "RSI "+rsi.toFixed(0)+", direction over 2 bars.");
     const upDay = c >= b.o;
-    add(upDay && av!=null && b.v > av, 10, "Volume behind buyers", upDay ? "Up day on above-average volume." : "Latest bar closed down.");
+    const volUp = upDay && av!=null && b.v > av;
+    add(volUp, 10, "Volume behind buyers", volUp ? "Up day on above-average volume." :
+        upDay ? "Up day, but volume was below average." : "Latest bar closed down.");
     pen(rsi > 75, 10, "Overbought", "RSI "+rsi.toFixed(0)+" — chasing here has poor reward-to-risk.");
     pen(bbU!=null && c > bbU*1.02, 5, "Stretched above upper band", "Price >2% above the upper Bollinger band.");
   } else {
+    if (limited){
+      const proxy = c < s50 && (s50p == null || s50 <= s50p);
+      add(proxy, 20, "Downtrend (limited history)", proxy ? "No 200-day yet — price below a falling 50-day." :
+          "New listing: price is not below a falling 50-day average.");
+    } else {
     const regimeFull = c < s200 && s50 < s200;
     add(regimeFull, 20, "Long-term downtrend", regimeFull ? "Price below the 200-day and 50<200." :
         (c < s200 ? "Price below 200-day but 50-day hasn't crossed." : "Price above the 200-day average."));
     if (!regimeFull && c < s200) parts[parts.length-1].pts = 10;
+    }
     add(c < s50, 10, "Below the 50-day", c < s50 ? "Intermediate trend is down." : "Trading above the 50-day.");
     add(s20p != null && s20 < s20p, 10, "20-day falling", "Short-term average slope over the last week.");
 
@@ -1003,7 +1031,9 @@ function scoreAt(bars, ind, i, side){
     add(mline!=null && msig!=null && mline < msig, 5, "MACD below signal", "Momentum crossover state.");
     add(rsiP!=null && rsi < 50 && rsi < rsiP, 5, "RSI weak & falling", "RSI "+rsi.toFixed(0)+", direction over 2 bars.");
     const dnDay = c < b.o;
-    add(dnDay && av!=null && b.v > av, 10, "Volume behind sellers", dnDay ? "Down day on above-average volume." : "Latest bar closed up.");
+    const volDn = dnDay && av!=null && b.v > av;
+    add(volDn, 10, "Volume behind sellers", volDn ? "Down day on above-average volume." :
+        dnDay ? "Down day, but volume was below average." : "Latest bar closed up.");
     pen(rsi < 25, 10, "Oversold", "RSI "+rsi.toFixed(0)+" — shorting into a washout has poor odds.");
     pen(bbL!=null && c < bbL*0.98, 5, "Stretched below lower band", "Price >2% below the lower Bollinger band.");
   }
@@ -1041,9 +1071,10 @@ function computeSignal(bars, ind){
 /* ================================================================
    Backtest — same score, honest fills, conservative same-bar rule
 ================================================================ */
+function scoreStart(bars){ return bars.length > 260 ? 210 : 60; } // young listings score from bar 60
 function backtestSym(sym, bars, ind, opt){
   const trades = [];
-  const start = 210;
+  const start = scoreStart(bars);
   const sides = opt.side === "both" ? ["long","short"] : [opt.side];
   for (const side of sides){
     const dir = side === "long" ? 1 : -1;
@@ -1105,7 +1136,20 @@ function backtestStats(trades){
 const TD_BASE = "https://api.twelvedata.com";
 const CACHE_MS = 10 * 60 * 1000;
 
+/* Token bucket: the Twelve Data free tier allows 8 requests/minute.
+   Bulk loads (watchlist, Discover scans) pace themselves instead of erroring. */
+const rateTimes = [];
+async function rateGate(){
+  for(;;){
+    const now = Date.now();
+    while (rateTimes.length && now - rateTimes[0] > 61000) rateTimes.shift();
+    if (rateTimes.length < 8){ rateTimes.push(now); return; }
+    await new Promise(r => setTimeout(r, 1500));
+  }
+}
+
 async function fetchLiveSeries(sym){
+  await rateGate();
   const url = `${TD_BASE}/time_series?symbol=${encodeURIComponent(sym)}&interval=1day&outputsize=500&apikey=${encodeURIComponent(S.apiKey)}`;
   const res = await fetch(url);
   const j = await res.json();
@@ -1601,6 +1645,10 @@ function renderTopbar(){
     const e = S.cache[sym];
     const chip = div("idx-chip", row);
     chip.setAttribute("role","button");
+    chip.tabIndex = 0;
+    chip.addEventListener("keydown", ev => {
+      if (ev.key === "Enter" || ev.key === " "){ ev.preventDefault(); selectSymbol(sym); }
+    });
     const b = document.createElement("b"); b.textContent = sym; chip.appendChild(b);
     if (e){
       const q = quoteOf(e);
@@ -2102,6 +2150,54 @@ async function selectSymbol(sym){
   }
   renderAll();
 }
+/* ---- Global symbol search: every listed ticker worldwide, incl. new IPOs.
+   Live mode queries the provider's full directory (symbol_search is a free
+   endpoint — no credits); demo mode searches the built-in universe. ---- */
+let sgTimer = 0, sgAbort = null, sgSeq = 0;
+function hideSuggest(){ const b = $("#symSuggest"); if (b) b.remove(); }
+async function suggestSymbols(q){
+  q = q.trim();
+  const seq = ++sgSeq;
+  if (!q){ hideSuggest(); return; }
+  let items = [], note = "";
+  if (S.mode === "live" && S.apiKey){
+    try {
+      if (sgAbort) sgAbort.abort();
+      sgAbort = new AbortController();
+      const res = await fetch(`${TD_BASE}/symbol_search?symbol=${encodeURIComponent(q)}&outputsize=12&apikey=${encodeURIComponent(S.apiKey)}`, {signal: sgAbort.signal});
+      const j = await res.json();
+      items = (j.data || []).map(d => ({sym:d.symbol, name:d.instrument_name, ex:d.exchange, cc:d.country}));
+      note = "Searching every listed symbol worldwide — new IPOs included.";
+    } catch(e){ if (e.name === "AbortError") return; }
+  } else {
+    const qq = q.toUpperCase();
+    items = Object.keys(COMPANY)
+      .filter(s => s.includes(qq) || COMPANY[s][0].toUpperCase().includes(qq))
+      .slice(0, 10)
+      .map(s => ({sym:s, name:COMPANY[s][0], ex:"demo", cc:""}));
+    note = "Demo mode searches the built-in list — go live in Settings to search every ticker in the world. Any symbol you type still gets a simulated series.";
+  }
+  if (seq !== sgSeq) return; // a newer query superseded this one
+  hideSuggest();
+  if (!items.length && !note) return;
+  const box = div("", $("#addSym"));
+  box.id = "symSuggest";
+  for (const it of items){
+    const r = div("sg", box);
+    const b = document.createElement("b"); b.textContent = it.sym; r.appendChild(b);
+    const sp = document.createElement("span");
+    sp.textContent = (it.name || "") + (it.ex ? " · " + it.ex : "") + (it.cc && it.cc !== "United States" ? " · " + it.cc : "");
+    r.appendChild(sp);
+    r.addEventListener("pointerdown", ev => {
+      ev.preventDefault();
+      hideSuggest();
+      $("#symInput").value = "";
+      addSymbol(it.sym);
+    });
+  }
+  if (note) div("sg-note", box, note);
+}
+
 async function addSymbol(raw){
   const sym = raw.trim().toUpperCase();
   if (!/^[A-Z0-9.\-:]{1,12}$/.test(sym)){ toast("That doesn't look like a ticker symbol.", "warn"); return; }
@@ -2182,10 +2278,18 @@ function wireEvents(){
 
   $("#addSym").addEventListener("submit", ev => {
     ev.preventDefault();
+    hideSuggest();
     const inp = $("#symInput");
     if (inp.value.trim()) addSymbol(inp.value);
     inp.value = "";
   });
+  $("#symInput").addEventListener("input", ev => {
+    clearTimeout(sgTimer);
+    const v = ev.target.value;
+    sgTimer = setTimeout(()=> suggestSymbols(v), 250);
+  });
+  $("#symInput").addEventListener("blur", ()=> setTimeout(hideSuggest, 150));
+  $("#symInput").addEventListener("keydown", ev => { if (ev.key === "Escape") hideSuggest(); });
 
   $("#btnRefresh").addEventListener("click", async ()=>{
     if (S.mode !== "live"){
@@ -2311,15 +2415,16 @@ function analyzeSym(sym, H){
   if (cur.score == null) return null;
 
   e.hz = e.hz || {};
+  const startJ = scoreStart(bars);
   let hz = e.hz[H.key];
   if (!hz || hz.at !== e.fetchedAt){
     const scores = new Array(bars.length).fill(null);
-    for (let j = 210; j < bars.length; j++) scores[j] = horizonScoreAt(bars, ind, j, H).score;
+    for (let j = startJ; j < bars.length; j++) scores[j] = horizonScoreAt(bars, ind, j, H).score;
     hz = {at: e.fetchedAt, scores};
     e.hz[H.key] = hz;
   }
   const c = ind.c, samples = [], base = [];
-  for (let j = 210; j < bars.length - H.bars; j++){
+  for (let j = startJ; j < bars.length - H.bars; j++){
     const f = c[j+H.bars]/c[j] - 1;
     base.push(f);
     if (hz.scores[j] != null && hz.scores[j] >= cur.score - 5) samples.push(f);
@@ -2327,7 +2432,7 @@ function analyzeSym(sym, H){
   const mean = a => a.length ? a.reduce((x,y)=>x+y,0)/a.length : null;
   const winp = a => a.length ? a.filter(x=>x>0).length/a.length*100 : null;
   return {
-    sym, name: symInfo(sym).name, score: cur.score, comp: cur.comp,
+    sym, name: symInfo(sym).name, score: cur.score, comp: cur.comp, barsN: bars.length,
     q: quoteOf(e), live: e.live, setup: e.sig.long.setup,
     cond: {n:samples.length, avg:mean(samples), win:winp(samples),
            baseN:base.length, baseAvg:mean(base), baseWin:winp(base)},
@@ -2431,6 +2536,7 @@ function renderPickCard(list, p, rank, H){
   if (raw.atrPct != null) chip("ATR", raw.atrPct.toFixed(1) + "%");
   if (H.bars <= 21 && p.comp.swing != null) chip("Swing", p.comp.swing + "/100");
   if (raw.rsi != null) chip("RSI", raw.rsi.toFixed(0));
+  if (p.barsN < 210) chip("New listing", p.barsN + " bars of history");
 
   const reason = pickReason(p, H);
   const rbox = div("pick-reason", body);
@@ -2463,7 +2569,7 @@ async function renderPicks(){
   }
   const sg = $("#scopeGroup");
   sg.textContent = "";
-  const universe = Object.keys(COMPANY);
+  const universe = [...new Set([...Object.keys(COMPANY), ...S.watch])];
   for (const [key, label] of [["watch","My watchlist ("+S.watch.length+")"],["universe","Discover · all "+universe.length]]){
     const b = document.createElement("button");
     b.className = "btn small" + (S.pickScope === key ? " active" : "");
@@ -2488,7 +2594,8 @@ async function renderPicks(){
     list.textContent = "";
     const c = div("card", list);
     div("sub", c, missing.length + " symbol(s) in this scope aren't loaded yet. Loading them uses about " + missing.length + " API credits" +
-      (missing.length > 100 ? " — a big bite out of the ~800/day free tier" : "") + ".");
+      (missing.length > 100 ? " — a big bite out of the ~800/day free tier" : "") +
+      (missing.length > 8 ? ", paced automatically to the 8/minute limit (≈" + Math.ceil(missing.length/8) + " min)" : "") + ".");
     const b = document.createElement("button");
     b.className = "btn primary"; b.textContent = "Load " + missing.length + " symbols & rank";
     b.addEventListener("click", async ()=>{
@@ -2523,7 +2630,7 @@ async function renderPicks(){
     " · " + H.label + " hold · suggested stop " + H.stop + "×ATR · daily data";
   list.textContent = "";
   if (!shown.length){
-    div("card", list, "No symbols have enough history to rank yet — each needs about 210 daily bars.");
+    div("card", list, "No symbols have enough history to rank yet — each needs about 60 daily bars.");
     return;
   }
   shown.forEach((p, idx) => renderPickCard(list, p, idx+1, H));
